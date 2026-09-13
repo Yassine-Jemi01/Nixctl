@@ -1,5 +1,3 @@
-import questionary
-
 from commands import (
     rebuild,
     update,
@@ -8,6 +6,7 @@ from commands import (
     search_package,
     validate_config,
 )
+from ui import multi_select
 
 
 def is_nixos():
@@ -56,17 +55,11 @@ ACTIONS = [
 def show_menu():
     while True:
         try:
-            choices = [
-                questionary.Choice(label, value=key)
-                for key, label, _ in ACTIONS
-            ] + [questionary.Choice("Exit", value="exit")]
+            options = [(label, key, None) for key, label, _ in ACTIONS]
 
-            selected = questionary.checkbox(
-                "What do you want to do? (space to select, enter to confirm)",
-                choices=choices,
-            ).ask()
+            selected = multi_select("What do you want to do?", options)
 
-            if not selected or "exit" in selected:
+            if not selected:
                 print("Goodbye!")
                 break
 

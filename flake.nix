@@ -11,7 +11,10 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        pythonEnv = pkgs.python3.withPackages (ps: [ ps.questionary ]);
+        pythonEnv = pkgs.python3.withPackages (ps: [
+          ps.questionary
+          ps.prompt-toolkit
+        ]);
 
         nixctl = pkgs.stdenv.mkDerivation {
           pname = "nixctl";

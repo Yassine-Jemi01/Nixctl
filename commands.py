@@ -1,4 +1,5 @@
 from system_info import uses_flakes, flakes_name, get_generations, search_packages
+from ui import multi_select
 
 import subprocess
 import time
@@ -300,19 +301,16 @@ def list_generations():
         wait_for_enter()
         return False
 
-    choices = [
-        questionary.Choice(
+    options = [
+        (
             f"{gen['id']} — {gen['date']}" + (" (current)" if gen["current"] else ""),
-            value=gen["id"],
-            disabled="current generation" if gen["current"] else None,
+            gen["id"],
+            "current generation" if gen["current"] else None,
         )
         for gen in generations
     ]
 
-    to_delete = questionary.checkbox(
-        "Select generations to delete (space to select, enter to confirm):",
-        choices=choices,
-    ).ask()
+    to_delete = multi_select("Select generations to delete", options)
 
     if not to_delete:
         print("No generations selected. Nothing deleted.")
