@@ -20,17 +20,41 @@ A simple interactive command-line tool for common NixOS system maintenance tasks
 
 ## Installation
 
+### With Nix (recommended)
+
+If you have flakes enabled, you can run it directly without cloning anything:
+
+```bash
+nix run github:Yassine-Jemi01/Nixctl
+```
+
+Or install it permanently into your profile:
+
+```bash
+nix profile install github:Yassine-Jemi01/Nixctl
+```
+
+You can also add it as an input to your own system flake and include the package in your `environment.systemPackages`.
+
+### Manual install
+
 Clone the repository and install the Python dependency:
 
 ```bash
-git clone https://github.com/<your-username>/nixos-cli.git
-cd nixos-cli
+git clone https://github.com/Yassine-Jemi01/Nixctl.git
+cd Nixctl
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-Run the tool with:
+If installed via Nix, run:
+
+```bash
+nixctl
+```
+
+Otherwise, run it directly with Python:
 
 ```bash
 python main.py
@@ -67,6 +91,7 @@ When using flakes, the configuration name is read directly from the output of `n
 ├── main.py           # Entry point, NixOS check, and interactive menu
 ├── commands.py       # Command execution, sudo handling, and rebuild/update/gc logic
 ├── system_info.py    # Flake detection and configuration name lookup
+├── flake.nix         # Nix package/app definition for `nix run` / `nix profile install`
 └── requirements.txt
 ```
 
