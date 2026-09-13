@@ -12,7 +12,7 @@ An interactive command-line tool for day-to-day NixOS maintenance: rebuilding, u
 - **Validate Config** — Checks your configuration for errors (`nix flake check` or `nixos-rebuild dry-build`) before you commit to a full rebuild.
 - **Diff before applying** — Every rebuild or update builds the new system first, then shows a `nix store diff-closures` comparison against the currently running system before anything is activated.
 - **Switch or boot** — Choose whether a change takes effect immediately or on the next reboot.
-- **Multi-select menu** — Select multiple actions at once with the spacebar (for example, validate, then update, then collect garbage, in one pass) and confirm with Enter.
+- **Multi-select menu** — Select multiple actions at once with the spacebar (for example, validate, then update, then collect garbage, in one pass) and confirm with Enter. It's a minimal custom widget with no "select all" or "invert" shortcuts — Space is the only way to change a selection.
 - **Automatic flake detection** — Detects `/etc/nixos/flake.nix` and reads `nixosConfigurations` to determine the configuration name automatically, with no hardcoding required.
 - **Sudo requested up front** — Authentication happens before any command runs, including flake updates, so you're never interrupted mid-operation.
 - **Live progress feedback** — Shows an elapsed-time counter while a command runs and reports success or failure when it finishes.
@@ -23,6 +23,7 @@ An interactive command-line tool for day-to-day NixOS maintenance: rebuilding, u
 - NixOS
 - Python 3.8+
 - [questionary](https://pypi.org/project/questionary/)
+- [prompt_toolkit](https://pypi.org/project/prompt-toolkit/) (used directly for the custom multi-select menu)
 - The `nix-command` experimental feature enabled, for diffing, searching, and flake checks:
 
   ```nix
@@ -74,17 +75,20 @@ python main.py
 You'll see a menu like this:
 
 ```
-What do you want to do? (space to select, enter to confirm)
-  Validate Config
-  Rebuild
-  Update
-  Garbage Collection
-  List Generations
-  Search Package
-  Exit
+? What do you want to do?
+  > [ ] Validate Config
+    [ ] Rebuild
+    [ ] Update
+    [ ] Garbage Collection
+    [ ] List Generations
+    [ ] Search Package
+
+  >  current row    [x] selected    [ ] not selected    space: toggle    enter: confirm
 ```
 
-Use the arrow keys to move, Space to select one or more actions, and Enter to run them. Selected actions always run in a fixed order — Validate Config first, then Rebuild, Update, Garbage Collection, List Generations, Search Package — regardless of the order you picked them in.
+Use the arrow keys to move, **Space** to select one or more actions, and **Enter** to run them. This is a minimal custom selector (see `ui.py`) — only Space toggles a selection; there's no "select all" or "invert selection" shortcut, so nothing gets picked by accident. Leaving nothing selected and pressing Enter, or pressing Esc/Ctrl+C, exits the tool.
+
+Selected actions always run in a fixed order — Validate Config first, then Rebuild, Update, Garbage Collection, List Generations, Search Package — regardless of the order you picked them in.
 
 For Rebuild and Update, once the build finishes you'll see a diff of what's about to change, then be asked to confirm and choose between applying it immediately (switch) or on next boot.
 
@@ -145,6 +149,7 @@ Rebuild and Update never activate a new system blindly: they build it into `./re
 ├── main.py           # Entry point, NixOS check, and the multi-select menu
 ├── commands.py       # Command execution, sudo handling, build/diff/apply flow, generations, search, validation
 ├── system_info.py    # Flake detection, configuration name lookup, generations, package search
+├── ui.py             # Minimal custom multi-select prompt (arrows, space, enter — no other shortcuts)
 ├── flake.nix          # Nix package/app definition for `nix run` / `nix profile add`
 ├── flake.lock         # Pinned versions of flake inputs (nixpkgs, flake-utils)
 └── requirements.txt
