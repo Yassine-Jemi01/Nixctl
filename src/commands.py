@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import time
 from typing import Sequence
@@ -44,10 +43,7 @@ def authenticate_sudo() -> bool:
 
         return result.returncode == 0
 
-    except KeyboardInterrupt:
-        return False
-
-    except OSError:
+    except (KeyboardInterrupt, OSError):
         return False
 
 
@@ -63,11 +59,7 @@ def run_command(
     command: Sequence[str],
     use_sudo: bool = False,
 ) -> bool:
-    """
-    Run a long-running command with an elapsed-time counter.
-
-    Command output is intentionally hidden to keep the interface clean.
-    """
+    """Run a command while displaying elapsed time."""
     process: subprocess.Popen | None = None
 
     try:
@@ -127,7 +119,7 @@ def run_command(
 def run_and_capture(
     command: Sequence[str],
 ) -> tuple[bool, str, str]:
-    """Run a short command and return success, stdout, and stderr."""
+    """Run a short command and return its result."""
     try:
         result = subprocess.run(
             list(command),
@@ -148,17 +140,19 @@ def run_and_capture(
 
 def _flake_target() -> str | None:
     """Build the /etc/nixos flake target automatically."""
-    flake_name = flakes_name()
+    name = flakes_name()
 
-    if not flake_name:
+    if not name:
         print("✗ Could not detect NixOS configuration name.")
         return None
 
-    return f"{NIXOS_CONFIG_DIR}#{flake_name}"
+    return f"{NIXOS_CONFIG_DIR}#{name}"
 
 
-def _build_new_system(extra_args: Sequence[str] | None = None) -> bool:
-    """Build the next system generation without activating it."""
+def _build_new_system(
+    extra_args: Sequence[str] | None = None,
+) -> bool:
+    """Build the next NixOS system generation."""
     extra_args = list(extra_args or [])
 
     _cleanup_result_link()
@@ -199,7 +193,7 @@ def _build_new_system(extra_args: Sequence[str] | None = None) -> bool:
 
 
 def _show_diff() -> None:
-    """Show the closure difference between running and built systems."""
+    """Show changes between the current and built system."""
     print("\nComparing with the currently running system...\n")
 
     success, stdout, stderr = run_and_capture(
@@ -214,6 +208,7 @@ def _show_diff() -> None:
 
     if not success:
         print("Could not compute a system diff.")
+
         if stderr.strip():
             print(f"\n{stderr.strip()}")
 
@@ -228,7 +223,7 @@ def _show_diff() -> None:
 
 
 def _apply_new_system(mode: str) -> bool:
-    """Activate the built configuration."""
+    """Activate the built NixOS configuration."""
     if mode not in {"switch", "boot"}:
         return False
 
@@ -262,7 +257,7 @@ def _apply_new_system(mode: str) -> bool:
 
 
 def _confirm_and_apply() -> bool:
-    """Show the diff, confirm it, then switch or boot."""
+    """Confirm and activate a built system."""
     _show_diff()
 
     proceed = questionary.confirm(
@@ -301,7 +296,7 @@ def _confirm_and_apply() -> bool:
 
 
 def rebuild() -> bool:
-    """Build and optionally activate the current configuration."""
+    """Build and apply the current NixOS configuration."""
     if not authenticate_sudo():
         print("✗ Sudo authentication failed.")
         wait_for_enter()
@@ -315,7 +310,7 @@ def rebuild() -> bool:
 
 
 def update() -> bool:
-    """Update flake inputs or legacy channels, then rebuild."""
+    """Update Flake inputs or legacy channels, then rebuild."""
     if not authenticate_sudo():
         print("✗ Sudo authentication failed.")
         wait_for_enter()
@@ -345,7 +340,9 @@ def update() -> bool:
             return False
 
     else:
-        if not _build_new_system(extra_args=["--upgrade"]):
+        if not _build_new_system(
+            extra_args=["--upgrade"]
+        ):
             wait_for_enter()
             return False
 
@@ -359,7 +356,7 @@ def update() -> bool:
 
 
 def garbage_collect() -> bool:
-    """Remove old Nix generations/store paths."""
+    """Remove unused Nix store data."""
     if uses_flakes():
         command = [
             "sudo",
@@ -384,7 +381,7 @@ def garbage_collect() -> bool:
 
 
 def list_generations() -> bool:
-    """Show system generations and delete selected ones."""
+    """Show and delete NixOS system generations."""
     print("Fetching generations...\n")
 
     if not authenticate_sudo():
@@ -468,7 +465,10 @@ def list_generations() -> bool:
             "sudo",
             "nix-env",
             "--delete-generations",
-            *[str(generation_id) for generation_id in selected_ids],
+            *[
+                str(generation_id)
+                for generation_id in selected_ids
+            ],
             "--profile",
             SYSTEM_PROFILE,
         ],
@@ -487,7 +487,7 @@ def list_generations() -> bool:
 
 
 def search_package() -> bool:
-    """Search nixpkgs for a package."""
+    """Search for packages in nixpkgs."""
     query = questionary.text(
         "Search for a package:"
     ).ask()

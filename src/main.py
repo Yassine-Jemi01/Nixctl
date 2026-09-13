@@ -10,7 +10,7 @@ from system_info import is_nixos
 from ui import multi_select
 
 
-VERSION = "v0.2.0"
+VERSION = "0.2.0"
 
 
 def print_nixos_banner() -> None:
