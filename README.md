@@ -31,7 +31,7 @@ nix run github:Yassine-Jemi01/Nixctl
 Or install it permanently into your profile:
 
 ```bash
-nix profile install github:Yassine-Jemi01/Nixctl
+nix profile add github:Yassine-Jemi01/Nixctl
 ```
 
 You can also add it as an input to your own system flake and include the package in your `environment.systemPackages`.
@@ -91,7 +91,8 @@ When using flakes, the configuration name is read directly from the output of `n
 ├── main.py           # Entry point, NixOS check, and interactive menu
 ├── commands.py       # Command execution, sudo handling, and rebuild/update/gc logic
 ├── system_info.py    # Flake detection and configuration name lookup
-├── flake.nix         # Nix package/app definition for `nix run` / `nix profile install`
+├── flake.nix         # Nix package/app definition for `nix run` / `nix profile add`
+├── flake.lock        # Pinned versions of flake inputs (nixpkgs, flake-utils)
 └── requirements.txt
 ```
 
