@@ -1,6 +1,13 @@
 import questionary
 
-from commands import rebuild, update, garbage_collect
+from commands import (
+    rebuild,
+    update,
+    garbage_collect,
+    list_generations,
+    search_package,
+    validate_config,
+)
 
 
 def is_nixos():
@@ -33,31 +40,39 @@ def print_nixos_banner():
     print("v0.1.0\n")
 
 
+# Order matters: this is the sequence actions run in when several are
+# selected at once. Validation runs first so a broken config is caught
+# before spending time on a build.
+ACTIONS = [
+    ("validate", "Validate Config", validate_config),
+    ("rebuild", "Rebuild", rebuild),
+    ("update", "Update", update),
+    ("gc", "Garbage Collection", garbage_collect),
+    ("list_gen", "List Generations", list_generations),
+    ("search", "Search Package", search_package),
+]
+
+
 def show_menu():
     while True:
         try:
-            choice = questionary.select(
-                "What do you want to do?",
-                choices=[
-                    "Rebuild",
-                    "Update",
-                    "Garbage Collection",
-                    "Exit",
-                ],
+            choices = [
+                questionary.Choice(label, value=key)
+                for key, label, _ in ACTIONS
+            ] + [questionary.Choice("Exit", value="exit")]
+
+            selected = questionary.checkbox(
+                "What do you want to do? (space to select, enter to confirm)",
+                choices=choices,
             ).ask()
 
-            if choice == "Rebuild":
-                rebuild()
-
-            elif choice == "Update":
-                update()
-
-            elif choice == "Garbage Collection":
-                garbage_collect()
-
-            elif choice == "Exit" or choice is None:
+            if not selected or "exit" in selected:
                 print("Goodbye!")
                 break
+
+            for key, _, action in ACTIONS:
+                if key in selected:
+                    action()
 
         except KeyboardInterrupt:
             print("\nGoodbye!")

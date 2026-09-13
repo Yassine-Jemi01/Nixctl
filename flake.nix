@@ -28,7 +28,8 @@
             cp main.py commands.py system_info.py $out/share/nixctl/
 
             makeWrapper ${pythonEnv}/bin/python3 $out/bin/nixctl \
-              --add-flags "$out/share/nixctl/main.py"
+              --add-flags "$out/share/nixctl/main.py" \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nix ]}
           '';
 
           meta = with pkgs.lib; {
