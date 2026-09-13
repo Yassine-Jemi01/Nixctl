@@ -28,7 +28,7 @@
 
           installPhase = ''
             mkdir -p $out/share/nixctl $out/bin
-            cp main.py commands.py system_info.py $out/share/nixctl/
+            cp main.py commands.py system_info.py ui.py $out/share/nixctl/
 
             makeWrapper ${pythonEnv}/bin/python3 $out/bin/nixctl \
               --add-flags "$out/share/nixctl/main.py" \
@@ -46,6 +46,7 @@
       in
       {
         packages.default = nixctl;
+
         apps.default = {
           type = "app";
           program = "${nixctl}/bin/nixctl";
