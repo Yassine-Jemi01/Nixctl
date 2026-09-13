@@ -1,23 +1,41 @@
-from system_info import uses_flakes, flakes_name, get_generations, search_packages
-from ui import multi_select
-
+import os
+import shutil
 import subprocess
 import time
+from typing import Sequence
+
 import questionary
 
+from system_info import (
+    NIXOS_CONFIG_DIR,
+    SYSTEM_PROFILE,
+    flakes_name,
+    get_generations,
+    search_packages,
+    uses_flakes,
+)
+from ui import multi_select
 
-def clear_screen():
-    subprocess.run(["clear"])
+
+RESULT_LINK = f"/tmp/nixctl-result-{os.getpid()}"
 
 
-def wait_for_enter():
+def clear_screen() -> None:
+    """Clear the terminal screen."""
+    subprocess.run(
+        ["clear"],
+        check=False,
+    )
+
+
+def wait_for_enter() -> None:
+    """Wait for the user, then clear the screen."""
     input("\nPress Enter to continue...")
     clear_screen()
 
 
-def authenticate_sudo():
-    """Ask for the sudo password up front, before anything else runs."""
-
+def authenticate_sudo() -> bool:
+    """Authenticate sudo before a privileged operation."""
     try:
         result = subprocess.run(
             ["sudo", "-v"],
@@ -29,31 +47,44 @@ def authenticate_sudo():
     except KeyboardInterrupt:
         return False
 
-    except Exception:
+    except OSError:
         return False
 
 
-def run_command(command, use_sudo=False):
-    """Run a command with a live elapsed-time counter, discarding output."""
+def _cleanup_result_link() -> None:
+    """Remove the temporary nixos-rebuild result link."""
+    try:
+        os.remove(RESULT_LINK)
+    except FileNotFoundError:
+        pass
 
-    process = None
+
+def run_command(
+    command: Sequence[str],
+    use_sudo: bool = False,
+) -> bool:
+    """
+    Run a long-running command with an elapsed-time counter.
+
+    Command output is intentionally hidden to keep the interface clean.
+    """
+    process: subprocess.Popen | None = None
 
     try:
-        if use_sudo:
-            if not authenticate_sudo():
-                print("\n✗ Sudo authentication failed.")
-                return False
+        if use_sudo and not authenticate_sudo():
+            print("\n✗ Sudo authentication failed.")
+            return False
 
         process = subprocess.Popen(
-            command,
+            list(command),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-        start_time = time.time()
+        start_time = time.monotonic()
 
         while process.poll() is None:
-            elapsed = int(time.time() - start_time)
+            elapsed = int(time.monotonic() - start_time)
 
             print(
                 f"\r⏱ {elapsed}s",
@@ -61,9 +92,9 @@ def run_command(command, use_sudo=False):
                 flush=True,
             )
 
-            time.sleep(1)
+            time.sleep(0.2)
 
-        elapsed = int(time.time() - start_time)
+        elapsed = int(time.monotonic() - start_time)
 
         if process.returncode == 0:
             print(f"\r✓ Success — {elapsed}s")
@@ -76,7 +107,16 @@ def run_command(command, use_sudo=False):
         if process is not None and process.poll() is None:
             process.terminate()
 
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
         print("\n\n✗ Operation cancelled.")
+        return False
+
+    except OSError as error:
+        print(f"\n✗ Could not start command: {error}")
         return False
 
     except Exception as error:
@@ -84,40 +124,44 @@ def run_command(command, use_sudo=False):
         return False
 
 
-def run_and_capture(command):
-    """Run a quick command and capture its output (no live timer).
-
-    Used for informational commands: diffing, searching, validating.
-    """
-
+def run_and_capture(
+    command: Sequence[str],
+) -> tuple[bool, str, str]:
+    """Run a short command and return success, stdout, and stderr."""
     try:
         result = subprocess.run(
-            command,
+            list(command),
             capture_output=True,
             text=True,
             check=False,
         )
 
-        return result.returncode == 0, result.stdout, result.stderr
+        return (
+            result.returncode == 0,
+            result.stdout,
+            result.stderr,
+        )
 
-    except Exception as error:
+    except OSError as error:
         return False, "", str(error)
 
 
-def _flake_target():
+def _flake_target() -> str | None:
+    """Build the /etc/nixos flake target automatically."""
     flake_name = flakes_name()
 
     if not flake_name:
         print("✗ Could not detect NixOS configuration name.")
         return None
 
-    return f"/etc/nixos#{flake_name}"
+    return f"{NIXOS_CONFIG_DIR}#{flake_name}"
 
 
-def _build_new_system(extra_args=None):
-    """Build the new system into ./result without activating it."""
+def _build_new_system(extra_args: Sequence[str] | None = None) -> bool:
+    """Build the next system generation without activating it."""
+    extra_args = list(extra_args or [])
 
-    extra_args = extra_args or []
+    _cleanup_result_link()
 
     if uses_flakes():
         target = _flake_target()
@@ -125,27 +169,37 @@ def _build_new_system(extra_args=None):
         if not target:
             return False
 
-        return run_command(
-            ["sudo", "nixos-rebuild", "build", "--flake", target, *extra_args],
-            use_sudo=True,
-        )
-
-    return run_command(
-        [
+        command = [
             "sudo",
             "nixos-rebuild",
             "build",
-            "-I",
-            "nixos-config=/etc/nixos/configuration.nix",
+            "--flake",
+            target,
+            "--out-link",
+            RESULT_LINK,
             *extra_args,
-        ],
+        ]
+
+    else:
+        command = [
+            "sudo",
+            "nixos-rebuild",
+            "build",
+            "--out-link",
+            RESULT_LINK,
+            "-I",
+            f"nixos-config={NIXOS_CONFIG_DIR}/configuration.nix",
+            *extra_args,
+        ]
+
+    return run_command(
+        command,
         use_sudo=True,
     )
 
 
-def _show_diff():
-    """Show what would change compared to the currently running system."""
-
+def _show_diff() -> None:
+    """Show the closure difference between running and built systems."""
     print("\nComparing with the currently running system...\n")
 
     success, stdout, stderr = run_and_capture(
@@ -154,23 +208,29 @@ def _show_diff():
             "store",
             "diff-closures",
             "/run/current-system",
-            "./result",
+            RESULT_LINK,
         ]
     )
 
     if not success:
-        print("(Could not compute a diff — this needs the 'nix-command'")
-        print(" experimental feature enabled in your Nix settings.)")
+        print("Could not compute a system diff.")
+        if stderr.strip():
+            print(f"\n{stderr.strip()}")
+
         return
 
-    if stdout.strip():
-        print(stdout)
+    output = stdout.strip()
+
+    if output:
+        print(output)
     else:
         print("No visible package differences.")
 
 
-def _apply_new_system(mode):
-    """Activate the already-built system with 'switch' or 'boot'."""
+def _apply_new_system(mode: str) -> bool:
+    """Activate the built configuration."""
+    if mode not in {"switch", "boot"}:
+        return False
 
     if uses_flakes():
         target = _flake_target()
@@ -178,33 +238,36 @@ def _apply_new_system(mode):
         if not target:
             return False
 
-        return run_command(
-            ["sudo", "nixos-rebuild", mode, "--flake", target],
-            use_sudo=True,
-        )
+        command = [
+            "sudo",
+            "nixos-rebuild",
+            mode,
+            "--flake",
+            target,
+        ]
 
-    return run_command(
-        [
+    else:
+        command = [
             "sudo",
             "nixos-rebuild",
             mode,
             "-I",
-            "nixos-config=/etc/nixos/configuration.nix",
-        ],
+            f"nixos-config={NIXOS_CONFIG_DIR}/configuration.nix",
+        ]
+
+    return run_command(
+        command,
         use_sudo=True,
     )
 
 
-def _cleanup_result_link():
-    subprocess.run(["rm", "-f", "./result"])
-
-
-def _confirm_and_apply():
-    """Shared flow: show the diff, confirm, choose switch/boot, apply."""
-
+def _confirm_and_apply() -> bool:
+    """Show the diff, confirm it, then switch or boot."""
     _show_diff()
 
-    proceed = questionary.confirm("\nApply this change to your system?").ask()
+    proceed = questionary.confirm(
+        "\nApply this change to your system?"
+    ).ask()
 
     if not proceed:
         print("Cancelled — nothing was applied.")
@@ -215,8 +278,14 @@ def _confirm_and_apply():
     mode = questionary.select(
         "When should it take effect?",
         choices=[
-            questionary.Choice("Switch now", value="switch"),
-            questionary.Choice("On next boot", value="boot"),
+            questionary.Choice(
+                "Switch now",
+                value="switch",
+            ),
+            questionary.Choice(
+                "On next boot",
+                value="boot",
+            ),
         ],
     ).ask()
 
@@ -231,9 +300,8 @@ def _confirm_and_apply():
     return success
 
 
-def rebuild():
-    # Ask for the sudo password before doing anything else, so the
-    # user isn't surprised by a password prompt partway through.
+def rebuild() -> bool:
+    """Build and optionally activate the current configuration."""
     if not authenticate_sudo():
         print("✗ Sudo authentication failed.")
         wait_for_enter()
@@ -246,88 +314,152 @@ def rebuild():
     return _confirm_and_apply()
 
 
-def update():
+def update() -> bool:
+    """Update flake inputs or legacy channels, then rebuild."""
     if not authenticate_sudo():
         print("✗ Sudo authentication failed.")
         wait_for_enter()
         return False
 
     if uses_flakes():
-        flake_name = flakes_name()
-
-        if not flake_name:
+        if not flakes_name():
             print("✗ Could not detect NixOS configuration name.")
             wait_for_enter()
             return False
 
-        # Update flake.lock BEFORE building, otherwise this behaves
-        # identically to rebuild() and never pulls in new versions.
-        if not run_command(["nix", "flake", "update", "--flake", "/etc/nixos"]):
-            print("✗ Could not update flake.lock. Check write permissions")
-            print("  on /etc/nixos, then try again.")
+        updated = run_command(
+            [
+                "sudo",
+                "nix",
+                "flake",
+                "update",
+                "--flake",
+                NIXOS_CONFIG_DIR,
+            ],
+            use_sudo=True,
+        )
+
+        if not updated:
+            print("✗ Could not update flake.lock.")
             wait_for_enter()
             return False
 
-        if not _build_new_system():
+    else:
+        if not _build_new_system(extra_args=["--upgrade"]):
             wait_for_enter()
             return False
 
         return _confirm_and_apply()
 
-    if not _build_new_system(extra_args=["--upgrade"]):
+    if not _build_new_system():
         wait_for_enter()
         return False
 
     return _confirm_and_apply()
 
 
-def garbage_collect():
+def garbage_collect() -> bool:
+    """Remove old Nix generations/store paths."""
     if uses_flakes():
-        result = run_command(["nix-collect-garbage", "--delete-old"])
+        command = [
+            "sudo",
+            "nix-collect-garbage",
+            "--delete-old",
+        ]
     else:
-        result = run_command(["nix-store", "--gc"])
+        command = [
+            "sudo",
+            "nix-store",
+            "--gc",
+        ]
+
+    success = run_command(
+        command,
+        use_sudo=True,
+    )
 
     wait_for_enter()
-    return result
+
+    return success
 
 
-def list_generations():
+def list_generations() -> bool:
+    """Show system generations and delete selected ones."""
     print("Fetching generations...\n")
 
-    generations = get_generations()
+    if not authenticate_sudo():
+        print("✗ Sudo authentication failed.")
+        wait_for_enter()
+        return False
+
+    generations, error = get_generations()
+
+    if error:
+        print("✗ Could not read system generations.")
+        print(f"\n{error}")
+        wait_for_enter()
+        return False
 
     if not generations:
-        print("✗ Could not read generations, or none were found.")
+        print("No system generations were found.")
         wait_for_enter()
         return False
 
     options = [
         (
-            f"{gen['id']} — {gen['date']}" + (" (current)" if gen["current"] else ""),
-            gen["id"],
-            "current generation" if gen["current"] else None,
+            f"{generation['id']} — {generation['date']}"
+            + (
+                " (current)"
+                if generation["current"]
+                else ""
+            ),
+            generation["id"],
+            (
+                "current generation"
+                if generation["current"]
+                else None
+            ),
         )
-        for gen in generations
+        for generation in generations
     ]
 
-    to_delete = multi_select("Select generations to delete", options)
+    selected = multi_select(
+        "Select generations to delete",
+        options,
+    )
 
-    if not to_delete:
+    if selected is None or not selected:
         print("No generations selected. Nothing deleted.")
         wait_for_enter()
         return False
 
+    current_ids = {
+        generation["id"]
+        for generation in generations
+        if generation["current"]
+    }
+
+    selected_ids = [
+        generation_id
+        for generation_id in selected
+        if generation_id not in current_ids
+    ]
+
+    if not selected_ids:
+        print("✗ The current generation cannot be deleted.")
+        wait_for_enter()
+        return False
+
+    if len(selected_ids) != len(selected):
+        print("Current generation was automatically excluded.")
+
     confirm = questionary.confirm(
-        f"Delete {len(to_delete)} generation(s)? This cannot be undone."
+        f"\nDelete {len(selected_ids)} generation(s)? "
+        "This cannot be undone."
     ).ask()
 
     if not confirm:
         print("Cancelled.")
-        wait_for_enter()
-        return False
-
-    if not authenticate_sudo():
-        print("✗ Sudo authentication failed.")
         wait_for_enter()
         return False
 
@@ -336,33 +468,51 @@ def list_generations():
             "sudo",
             "nix-env",
             "--delete-generations",
-            *[str(i) for i in to_delete],
-            "-p",
-            "/nix/var/nix/profiles/system",
+            *[str(generation_id) for generation_id in selected_ids],
+            "--profile",
+            SYSTEM_PROFILE,
         ],
         use_sudo=True,
     )
 
     if success:
-        print("Run Garbage Collection to reclaim the freed disk space.")
+        print(
+            "\nRun Garbage Collection to reclaim "
+            "the freed disk space."
+        )
 
     wait_for_enter()
+
     return success
 
 
-def search_package():
-    query = questionary.text("Search for a package:").ask()
+def search_package() -> bool:
+    """Search nixpkgs for a package."""
+    query = questionary.text(
+        "Search for a package:"
+    ).ask()
 
     if not query:
         return False
 
-    print(f"\nSearching for '{query}'... (this can take a while the first time)\n")
+    query = query.strip()
+
+    if not query:
+        return False
+
+    print(
+        f"\nSearching for '{query}'..."
+        " (this can take a while the first time)\n"
+    )
 
     results = search_packages(query)
 
     if results is None:
-        print("✗ Search failed. Make sure the 'nix-command' experimental")
-        print("  feature is enabled.")
+        print("✗ Search failed.")
+        print(
+            "Make sure the 'nix-command' experimental "
+            "feature is enabled."
+        )
         wait_for_enter()
         return False
 
@@ -382,34 +532,42 @@ def search_package():
             print(f"    {description}")
 
     if len(results) > 25:
-        print(f"\n...and {len(results) - 25} more results.")
+        print(
+            f"\n...and {len(results) - 25} more results."
+        )
 
     wait_for_enter()
+
     return True
 
 
-def validate_config():
+def validate_config() -> bool:
+    """Validate the current NixOS configuration."""
     print("Validating configuration...\n")
 
     if uses_flakes():
-        success, stdout, stderr = run_and_capture(
-            ["nix", "flake", "check", "/etc/nixos"]
-        )
+        command = [
+            "nix",
+            "flake",
+            "check",
+            NIXOS_CONFIG_DIR,
+        ]
     else:
-        success, stdout, stderr = run_and_capture(
-            [
-                "nixos-rebuild",
-                "dry-build",
-                "-I",
-                "nixos-config=/etc/nixos/configuration.nix",
-            ]
-        )
+        command = [
+            "nixos-rebuild",
+            "dry-build",
+            "-I",
+            f"nixos-config={NIXOS_CONFIG_DIR}/configuration.nix",
+        ]
+
+    success, stdout, stderr = run_and_capture(command)
 
     if success:
         print("✓ Configuration looks valid.")
     else:
         print("✗ Configuration has errors:\n")
-        print(stderr or stdout)
+        print(stderr.strip() or stdout.strip())
 
     wait_for_enter()
+
     return success

@@ -9,7 +9,9 @@
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+        };
 
         pythonEnv = pkgs.python3.withPackages (ps: [
           ps.questionary
@@ -22,22 +24,34 @@
 
           src = ./.;
 
-          nativeBuildInputs = [ pkgs.makeWrapper ];
+          nativeBuildInputs = [
+            pkgs.makeWrapper
+          ];
 
           dontBuild = true;
 
           installPhase = ''
-            mkdir -p $out/share/nixctl $out/bin
-            cp main.py commands.py system_info.py ui.py $out/share/nixctl/
+            mkdir -p $out/share/nixctl
+            mkdir -p $out/bin
+
+            cp -- *.py $out/share/nixctl/
 
             makeWrapper ${pythonEnv}/bin/python3 $out/bin/nixctl \
               --add-flags "$out/share/nixctl/main.py" \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nix ]}
+              --prefix PATH : ${
+                pkgs.lib.makeBinPath [
+                  pkgs.nix
+                ]
+              }
           '';
 
           meta = with pkgs.lib; {
-            description = "Interactive CLI for NixOS rebuild, update, and garbage collection";
-            homepage = "https://github.com/Yassine-Jemi01/Nixctl";
+            description =
+              "Interactive CLI for NixOS maintenance";
+
+            homepage =
+              "https://github.com/Yassine-Jemi01/Nixctl";
+
             license = licenses.mit;
             platforms = platforms.linux;
             mainProgram = "nixctl";
@@ -53,7 +67,9 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [ pythonEnv ];
+          packages = [
+            pythonEnv
+          ];
         };
       });
 }

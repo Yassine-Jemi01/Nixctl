@@ -1,31 +1,19 @@
 from commands import (
-    rebuild,
-    update,
     garbage_collect,
     list_generations,
+    rebuild,
     search_package,
+    update,
     validate_config,
 )
+from system_info import is_nixos
 from ui import multi_select
 
 
-def is_nixos():
-    try:
-        with open("/etc/os-release", "r", encoding="utf-8") as file:
-            return any(
-                line.strip() == "ID=nixos"
-                for line in file
-            )
-
-    except FileNotFoundError:
-        return False
-
-    except PermissionError:
-        print("Error: Permission denied.")
-        return False
+VERSION = "0.1.0"
 
 
-def print_nixos_banner():
+def print_nixos_banner() -> None:
     banner = r"""
  __   __     ______     __         __
 /\ "-.\ \   /\  ___\   /\ \       /\ \
@@ -34,14 +22,16 @@ def print_nixos_banner():
   \/_/ \/_/   \/_____/   \/_____/   \/_/
 """
 
-    print("\033[38;2;126;186;228m" + banner + "\033[0m")
+    print(
+        "\033[38;2;126;186;228m"
+        + banner
+        + "\033[0m"
+    )
+
     print("NixOS CLI Tool")
-    print("v0.1.0\n")
+    print(f"v{VERSION}\n")
 
 
-# Order matters: this is the sequence actions run in when several are
-# selected at once. Validation runs first so a broken config is caught
-# before spending time on a build.
 ACTIONS = [
     ("validate", "Validate Config", validate_config),
     ("rebuild", "Rebuild", rebuild),
@@ -52,16 +42,23 @@ ACTIONS = [
 ]
 
 
-def show_menu():
+def show_menu() -> None:
+    """Run the main interactive menu."""
     while True:
         try:
-            options = [(label, key, None) for key, label, _ in ACTIONS]
+            options = [
+                (label, key, None)
+                for key, label, _ in ACTIONS
+            ]
 
-            selected = multi_select("What do you want to do?", options)
+            selected = multi_select(
+                "What do you want to do?",
+                options,
+            )
 
-            if not selected:
+            if selected is None or not selected:
                 print("Goodbye!")
-                break
+                return
 
             for key, _, action in ACTIONS:
                 if key in selected:
@@ -69,13 +66,13 @@ def show_menu():
 
         except KeyboardInterrupt:
             print("\nGoodbye!")
-            break
+            return
 
         except Exception as error:
             print(f"\nUnexpected error: {error}")
 
 
-def main():
+def main() -> None:
     if not is_nixos():
         print(
             "\033[38;2;255;0;0m"

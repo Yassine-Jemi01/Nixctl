@@ -2,17 +2,41 @@ import json
 import os
 import socket
 import subprocess
+from typing import Any
 
 
-def get_hostname():
+NIXOS_CONFIG_DIR = "/etc/nixos"
+SYSTEM_PROFILE = "/nix/var/nix/profiles/system"
+
+
+def get_hostname() -> str:
+    """Return the current machine hostname."""
     return socket.gethostname()
 
 
-def uses_flakes():
-    return os.path.isfile("/etc/nixos/flake.nix")
+def is_nixos() -> bool:
+    """Return True when the current operating system is NixOS."""
+    try:
+        with open("/etc/os-release", "r", encoding="utf-8") as file:
+            for line in file:
+                if line.strip() == "ID=nixos":
+                    return True
+
+    except (FileNotFoundError, PermissionError):
+        pass
+
+    return False
 
 
-def flakes_name():
+def uses_flakes() -> bool:
+    """Return True when the NixOS configuration uses a flake."""
+    return os.path.isfile(
+        os.path.join(NIXOS_CONFIG_DIR, "flake.nix")
+    )
+
+
+def flakes_name() -> str | None:
+    """Detect the first nixosConfiguration name from the system flake."""
     if not uses_flakes():
         return None
 
@@ -23,19 +47,15 @@ def flakes_name():
                 "flake",
                 "show",
                 "--json",
-                "/etc/nixos",
+                NIXOS_CONFIG_DIR,
             ],
             capture_output=True,
             text=True,
             check=True,
         )
 
-        data = json.loads(result.stdout)
-
-        configurations = data.get(
-            "nixosConfigurations",
-            {},
-        )
+        data: dict[str, Any] = json.loads(result.stdout)
+        configurations = data.get("nixosConfigurations", {})
 
         if not configurations:
             return None
@@ -44,31 +64,52 @@ def flakes_name():
 
     except (
         subprocess.CalledProcessError,
+        FileNotFoundError,
         json.JSONDecodeError,
     ):
         return None
 
 
-def get_generations():
-    """Return a list of {id, date, current} dicts for the system profile."""
+def get_generations() -> tuple[list[dict[str, Any]], str | None]:
+    """
+    Return system generations.
+
+    Each generation contains:
+        id: int
+        date: str
+        current: bool
+
+    The second return value contains an error message when the command fails.
+    """
+    if not os.path.exists(SYSTEM_PROFILE):
+        return [], f"System profile not found: {SYSTEM_PROFILE}"
 
     try:
         result = subprocess.run(
             [
+                "sudo",
                 "nix-env",
+                "--profile",
+                SYSTEM_PROFILE,
                 "--list-generations",
-                "-p",
-                "/nix/var/nix/profiles/system",
             ],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
 
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return []
+    except FileNotFoundError as error:
+        return [], str(error)
 
-    generations = []
+    if result.returncode != 0:
+        error = result.stderr.strip()
+
+        if not error:
+            error = "nix-env failed to list system generations."
+
+        return [], error
+
+    generations: list[dict[str, Any]] = []
 
     for line in result.stdout.splitlines():
         line = line.strip()
@@ -82,27 +123,26 @@ def get_generations():
             continue
 
         try:
-            gen_id = int(parts[0])
+            generation_id = int(parts[0])
         except ValueError:
             continue
 
         date = f"{parts[1]} {parts[2]}"
-        current = "current" in line
+        current = "(current)" in line
 
         generations.append(
             {
-                "id": gen_id,
+                "id": generation_id,
                 "date": date,
                 "current": current,
             }
         )
 
-    return generations
+    return generations, None
 
 
-def search_packages(query):
-    """Search nixpkgs for a package. Returns a dict of results, or None on error."""
-
+def search_packages(query: str) -> dict[str, Any] | None:
+    """Search nixpkgs for a package."""
     try:
         result = subprocess.run(
             [
@@ -117,10 +157,11 @@ def search_packages(query):
             check=True,
         )
 
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
-
-    try:
         return json.loads(result.stdout)
-    except json.JSONDecodeError:
+
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        json.JSONDecodeError,
+    ):
         return None
