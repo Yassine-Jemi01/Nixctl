@@ -45,6 +45,8 @@ Install it into your profile:
 nix profile add github:Yassine-Jemi01/Nixctl
 ```
 
+Don't pin the install to a specific commit (e.g. `.../Nixctl/<commit-hash>`) — that locks you to that exact commit forever and `upgrade` won't move past it. Using the plain URL above always resolves to the latest `main` at install time, and lets `nix profile upgrade` pull newer commits later.
+
 You can also add it as an input to your own system flake and include the package in `environment.systemPackages`.
 
 ### Manual install
@@ -88,25 +90,25 @@ For Rebuild and Update, once the build finishes you'll see a diff of what's abou
 
 ## Updating Nixctl itself
 
-If you installed it with `nix profile add`, it won't pick up new versions on its own — you need to refresh it explicitly once new commits are pushed:
+If you installed it with `nix profile add`, it won't pick up new versions on its own — you need to refresh it explicitly once new commits are pushed to `main`:
 
 ```bash
 nix profile list
-nix profile upgrade nixctl --refresh
+nix profile upgrade Nixctl --refresh
 ```
 
-If your `nix profile` doesn't support `upgrade` by name, use the index shown in `nix profile list` instead, or reinstall with `--refresh`:
+Nix names the profile entry after the flake's repository, so the name is case-sensitive — check the exact name (and index) with `nix profile list` first. If `upgrade Nixctl` doesn't match, use the index shown instead:
 
 ```bash
-nix profile install github:Yassine-Jemi01/Nixctl --refresh
+nix profile upgrade <index> --refresh
 ```
 
-`--refresh` is required — without it, Nix reuses its local cache instead of checking GitHub for new commits.
+`--refresh` is required — without it, Nix reuses its local evaluation cache instead of checking GitHub for new commits, and the upgrade silently does nothing.
 
 ## Removing Nixctl
 
 ```bash
-nix profile remove nixctl
+nix profile remove Nixctl
 ```
 
 Or by index, if `remove` doesn't accept the name directly:
@@ -155,6 +157,7 @@ Rebuild and Update never activate a new system blindly: they build it into `./re
 - Because NixOS keeps previous generations, a failed or unwanted update can still be rolled back from the boot menu or with `sudo nixos-rebuild switch --rollback`, independently of anything this tool does.
 - Writing to `/etc/nixos/flake.lock` requires write permission on that file or directory. If the update step fails immediately, check ownership and permissions on `/etc/nixos`.
 - The current generation is protected in the generations list and cannot be selected for deletion.
+- For maintainers: always commit and push `flake.lock` alongside `flake.nix`. Without it committed to `main`, `nix profile add`/`upgrade` has no lock file to resolve against and users can hit lock-file errors.
 
 ## License
 
